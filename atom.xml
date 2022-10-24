@@ -1,0 +1,2017 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+    <id>https://kirlang.github.io</id>
+    <title>名都</title>
+    <updated>2022-10-24T11:47:35.808Z</updated>
+    <generator>https://github.com/jpmonette/feed</generator>
+    <link rel="alternate" href="https://kirlang.github.io"/>
+    <link rel="self" href="https://kirlang.github.io/atom.xml"/>
+    <subtitle>站在巨人的肩膀上！</subtitle>
+    <logo>https://kirlang.github.io/images/avatar.png</logo>
+    <icon>https://kirlang.github.io/favicon.ico</icon>
+    <rights>All rights reserved 2022, 名都</rights>
+    <entry>
+        <title type="html"><![CDATA[红黑树C语言实现]]></title>
+        <id>https://kirlang.github.io/D6Ax3YlZ-/</id>
+        <link href="https://kirlang.github.io/D6Ax3YlZ-/">
+        </link>
+        <updated>2022-10-24T11:26:38.000Z</updated>
+        <content type="html"><![CDATA[<pre><code class="language-C">//红黑树容器
+typedef struct RBTreeNode RBTreeNode;
+typedef struct RBTree RBTree;
+//查找接口函数
+typedef Result (*RBTreeFuncSearch)(kuintptr, kuintptr);
+//比较函数接口
+typedef Result (*RBTreeFuncCompare)(kuintptr, kuintptr);
+
+//红黑树节点
+struct RBTreeNode
+{
+    RBTreeNode *mParent; //父节点
+    RBTreeNode *mLeft;   //左孩子
+    RBTreeNode *mRight;  //右孩子
+    kbool mIsRed;        //红色标识
+};
+//红黑树
+struct RBTree
+{
+    RBTreeNode *mRoot;     //树根
+    volatile kuint mCount; //节点计数
+};
+
+//空的红黑树节点
+#define _rbtree_null_node ((RBTreeNode *)0)
+
+//初始化节点
+kinline void rbtreeInitNode(RBTreeNode *node)
+{
+    node-&gt;mParent = _rbtree_null_node;
+    node-&gt;mLeft = _rbtree_null_node;
+    node-&gt;mRight = _rbtree_null_node;
+    node-&gt;mIsRed = ktrue;
+}
+//初始化红黑树
+kinline void rbtreeInit(RBTree *cthis)
+{
+    cthis-&gt;mCount = 0;
+    cthis-&gt;mRoot = _rbtree_null_node;
+}
+
+//获取最左节点
+kinline RBTreeNode *rbtreeLeftMost(RBTree *cthis)
+{
+    RBTreeNode *left = _rbtree_null_node;
+    //更新最左节点
+    if (cthis-&gt;mCount != 0)
+    {
+        left = cthis-&gt;mRoot-&gt;mLeft;
+        while (left != _rbtree_null_node &amp;&amp; left-&gt;mLeft != _rbtree_null_node)
+            left = left-&gt;mLeft;
+    }
+    if (left == _rbtree_null_node)
+        left = cthis-&gt;mRoot;
+    return left;
+}
+//获取最右节点
+kinline RBTreeNode *rbtreeRightMost(RBTree *cthis)
+{
+    RBTreeNode *right = _rbtree_null_node;
+    //更新最右节点
+    if (cthis-&gt;mCount != 0)
+    {
+        right = cthis-&gt;mRoot-&gt;mRight;
+        while (right != _rbtree_null_node &amp;&amp; right-&gt;mRight != _rbtree_null_node)
+            right = right-&gt;mRight;
+    }
+    if (right == _rbtree_null_node)
+        right = cthis-&gt;mRoot;
+    return right;
+}
+
+//旋转操作原理
+/*      |                                             |
+ *      y       right-rotate(tree, y) -&gt;              x
+ *     / \                                           / \
+ *    x   c     &lt;- left-rotate(tree, x)             a   y
+ *   / \                                               / \
+ *  a   b                                             b   c
+ */
+
+//左旋
+kinline void rbtreeRotateLeft(RBTree *cthis, RBTreeNode *nodeX)
+{
+    RBTreeNode *rightY = nodeX-&gt;mRight;
+    if (rightY != _rbtree_null_node)
+    {
+        //调整 x 的右节点和 y 的左节点
+        nodeX-&gt;mRight = rightY-&gt;mLeft;
+        if (rightY-&gt;mLeft != _rbtree_null_node)
+            rightY-&gt;mLeft-&gt;mParent = nodeX;
+        //设置 x y 的父节点
+        RBTreeNode *parent = nodeX-&gt;mParent;
+        rightY-&gt;mParent = parent;
+        if (parent == _rbtree_null_node) // x 为根节点
+            cthis-&gt;mRoot = rightY;
+        else if (nodeX == parent-&gt;mLeft) // x 为左节点
+            parent-&gt;mLeft = rightY;
+        else
+            parent-&gt;mRight = rightY; // x 为右节点
+        // 放置 x 在 y 的左节点
+        rightY-&gt;mLeft = nodeX;
+        nodeX-&gt;mParent = rightY;
+    }
+}
+//右旋
+kinline void rbtreeRotateRight(RBTree *cthis, RBTreeNode *nodeY)
+{
+    RBTreeNode *leftX = nodeY-&gt;mLeft;
+
+    if (leftX != _rbtree_null_node)
+    {
+        //调整 x  y 的子节点
+        nodeY-&gt;mLeft = leftX-&gt;mRight;
+        if (leftX-&gt;mRight != _rbtree_null_node)
+            leftX-&gt;mRight-&gt;mParent = nodeY;
+        //设置 x y 的父节点
+
+        RBTreeNode *parent = nodeY-&gt;mParent;
+        leftX-&gt;mParent = parent;
+        if (parent == _rbtree_null_node) //根节点
+            cthis-&gt;mRoot = leftX;
+        else if (nodeY == parent-&gt;mRight) // y 是右节点
+            parent-&gt;mRight = leftX;
+        else // y 是左节点
+            parent-&gt;mLeft = leftX;
+        // 放置 y 在 x 的右节点
+        nodeY-&gt;mParent = leftX;
+        leftX-&gt;mRight = nodeY;
+    }
+}
+
+//修复红黑树
+kinline void rbtreeFixupInsert(RBTree *cthis, RBTreeNode *node)
+{
+    // 1、父亲一定存在的情况，叔叔存在/不存在 父亲叔叔结点颜色为红色
+    while (node-&gt;mParent != _rbtree_null_node &amp;&amp;
+           node-&gt;mParent-&gt;mIsRed == ktrue)
+    {
+        //如果插入节点的父节点是左节点
+        if (node-&gt;mParent == node-&gt;mParent-&gt;mParent-&gt;mLeft)
+        {
+            //插入节点是左节点，获取其 右叔叔
+            RBTreeNode *runcle = node-&gt;mParent-&gt;mParent-&gt;mRight;
+            if (runcle != _rbtree_null_node &amp;&amp; runcle-&gt;mIsRed == ktrue)
+            {
+                //情况 1：改变颜色
+                node-&gt;mParent-&gt;mIsRed = kfalse;
+                runcle-&gt;mIsRed = kfalse;
+                node-&gt;mParent-&gt;mParent-&gt;mIsRed = ktrue;
+                //处理下一个节点
+                node = node-&gt;mParent-&gt;mParent;
+            }
+            else
+            {
+                // 右叔叔是黑色节点
+                if (node == node-&gt;mParent-&gt;mRight)
+                {
+                    //情况 2:左旋节点
+                    node = node-&gt;mParent;
+                    rbtreeRotateLeft(cthis, node);
+                }
+                //情况 3
+                node-&gt;mParent-&gt;mIsRed = kfalse;
+                node-&gt;mParent-&gt;mParent-&gt;mIsRed = ktrue;
+                //右旋节点
+                rbtreeRotateRight(cthis, node-&gt;mParent-&gt;mParent);
+            }
+        }
+        else
+        {
+            //如果插入节点是右节点，获取其 左叔叔
+            RBTreeNode *luncle = node-&gt;mParent-&gt;mParent-&gt;mLeft;
+            if (luncle != _rbtree_null_node &amp;&amp; luncle-&gt;mIsRed == ktrue)
+            {
+                node-&gt;mParent-&gt;mIsRed = kfalse;
+                luncle-&gt;mIsRed = kfalse;
+                node-&gt;mParent-&gt;mParent-&gt;mIsRed = ktrue;
+
+                node = node-&gt;mParent-&gt;mParent;
+            }
+            else
+            {
+                if (node == node-&gt;mParent-&gt;mLeft)
+                {
+                    node = node-&gt;mParent;
+                    rbtreeRotateRight(cthis, node);
+                }
+                node-&gt;mParent-&gt;mIsRed = kfalse;
+                node-&gt;mParent-&gt;mParent-&gt;mIsRed = ktrue;
+                rbtreeRotateLeft(cthis, node-&gt;mParent-&gt;mParent);
+            }
+        }
+    }
+    cthis-&gt;mRoot-&gt;mIsRed = kfalse;
+}
+kinline void rbtreeFixupRemove(RBTree *cthis, RBTreeNode *node)
+{
+    while (node != _rbtree_null_node &amp;&amp; node != cthis-&gt;mRoot &amp;&amp; node-&gt;mIsRed == kfalse)
+    {
+        // node 是左节点
+        if (node == node-&gt;mParent-&gt;mLeft)
+        {
+            RBTreeNode *runcle = node-&gt;mParent-&gt;mRight;
+            // node的兄弟节点 runcle 是红色
+            if (runcle-&gt;mIsRed == ktrue)
+            {
+                runcle-&gt;mIsRed = kfalse;                  //置黑
+                runcle-&gt;mParent-&gt;mIsRed = ktrue;          //置红
+                rbtreeRotateLeft(cthis, runcle-&gt;mParent); //父节点左旋
+            }
+            // node的兄弟节点 runcle 是黑色，且兄弟节点的两个孩子节点为黑色
+            if (runcle-&gt;mIsRed == kfalse &amp;&amp; runcle-&gt;mLeft-&gt;mIsRed == kfalse &amp;&amp; runcle-&gt;mRight-&gt;mIsRed == kfalse)
+            {
+                //兄弟节点置红
+                runcle-&gt;mIsRed = ktrue;
+                if (node-&gt;mParent-&gt;mIsRed == ktrue)
+                    node-&gt;mParent-&gt;mIsRed = kfalse;
+                else
+                    node = node-&gt;mParent;
+            }
+            // node的兄弟节点 runcle 是黑色，但是 runcle 的右节点是红色
+            if (runcle-&gt;mIsRed == kfalse &amp;&amp; runcle-&gt;mLeft-&gt;mIsRed == kfalse &amp;&amp; runcle-&gt;mRight-&gt;mIsRed == ktrue)
+            {
+                //记录父节点的颜色
+                kbool color = node-&gt;mParent-&gt;mIsRed;
+                //父节点置黑
+                node-&gt;mParent-&gt;mIsRed = kfalse;
+                //父节点左旋
+                rbtreeRotateLeft(cthis, node-&gt;mParent);
+                //兄弟节点置为父节点原颜色
+                runcle-&gt;mIsRed = color;
+                //兄弟节点的右孩子节点变为黑色
+                runcle-&gt;mRight-&gt;mIsRed = kfalse;
+            }
+            // node的兄弟节点 runcle 是黑色，但是 runcle 的左节点是红色
+            if (runcle-&gt;mIsRed == kfalse &amp;&amp; runcle-&gt;mLeft-&gt;mIsRed == ktrue &amp;&amp; runcle-&gt;mRight-&gt;mIsRed == kfalse)
+            {
+                //左节点右旋
+                rbtreeRotateRight(cthis, node-&gt;mLeft);
+            }
+        }
+        // node 是右节点
+        else
+        {
+            RBTreeNode *luncle = node-&gt;mParent-&gt;mLeft;
+            // node的兄弟节点 luncle 是红色
+            if (luncle-&gt;mIsRed == ktrue)
+            {
+                luncle-&gt;mIsRed = kfalse;                   //置黑
+                luncle-&gt;mParent-&gt;mIsRed = ktrue;           //置红
+                rbtreeRotateRight(cthis, luncle-&gt;mParent); //父节点右旋
+            }
+            // node的兄弟节点 luncle 是黑色，且兄弟节点的两个孩子节点为黑色
+            if (luncle-&gt;mIsRed == kfalse &amp;&amp; luncle-&gt;mLeft-&gt;mIsRed == kfalse &amp;&amp; luncle-&gt;mRight-&gt;mIsRed == kfalse)
+            {
+                //兄弟节点置红
+                luncle-&gt;mIsRed = ktrue;
+                if (node-&gt;mParent-&gt;mIsRed == ktrue)
+                    node-&gt;mParent-&gt;mIsRed = kfalse;
+                else
+                    node = node-&gt;mParent;
+            }
+            // node的兄弟节点 luncle 是黑色，但是 runcle 的左节点是红色
+            if (luncle-&gt;mIsRed == kfalse &amp;&amp; luncle-&gt;mLeft-&gt;mIsRed == ktrue &amp;&amp; luncle-&gt;mRight-&gt;mIsRed == kfalse)
+            {
+                //记录父节点的颜色
+                kbool color = node-&gt;mParent-&gt;mIsRed;
+                //父节点置黑
+                node-&gt;mParent-&gt;mIsRed = kfalse;
+                //父节点右旋
+                rbtreeRotateRight(cthis, node-&gt;mParent);
+                //兄弟节点置为父节点原颜色
+                luncle-&gt;mIsRed = color;
+                //兄弟节点的左孩子节点变为黑色
+                luncle-&gt;mLeft-&gt;mIsRed = kfalse;
+            }
+            // node的兄弟节点 runcle 是黑色，但是 runcle 的右节点是红色
+            if (luncle-&gt;mIsRed == kfalse &amp;&amp; luncle-&gt;mLeft-&gt;mIsRed == kfalse &amp;&amp; luncle-&gt;mRight-&gt;mIsRed == ktrue)
+            {
+                //右节点左旋
+                rbtreeRotateLeft(cthis, node-&gt;mRight);
+            }
+        }
+        node-&gt;mIsRed = kfalse;
+    }
+}
+//插入节点
+kinline kbool rbtreeInsert(RBTree *cthis, RBTreeNode *node, RBTreeFuncCompare cfunc)
+{
+    RBTreeNode *iter = _rbtree_null_node, *pos = cthis-&gt;mRoot;
+    Result nRes = CmpEqual;
+    //查找插入位置
+    while (pos != _rbtree_null_node)
+    {
+        iter = pos;
+        nRes = cfunc(pos, node);
+        if (nRes == CmpLess)
+            pos = pos-&gt;mLeft;
+        else if (nRes == CmpGreater)
+            pos = pos-&gt;mRight;
+        else
+            return kfalse; //已经存在相同key
+    }
+    //插入节点
+    node-&gt;mParent = iter;
+    if (iter == _rbtree_null_node)
+        cthis-&gt;mRoot = node;
+    else if (cfunc(iter, node) == CmpLess)
+        iter-&gt;mLeft = node;
+    else
+        iter-&gt;mRight = node;
+
+    //初始化插入节点
+    node-&gt;mLeft = _rbtree_null_node;
+    node-&gt;mRight = _rbtree_null_node;
+    node-&gt;mIsRed = ktrue;
+    //更新计数
+    ++cthis-&gt;mCount;
+    //维护红黑树性质
+    rbtreeFixupInsert(cthis, node);
+    return ktrue;
+}
+//移除节点(不会释放内存，移除的节点指向空节点)
+kinline void rbtreeRemove(RBTree *cthis, RBTreeNode *node)
+{
+    if (cthis-&gt;mCount == 0)
+        return;
+
+    RBTreeNode *x = _rbtree_null_node; //后继节点
+
+    kbool orgClr = node-&gt;mIsRed;
+
+    //待删节点，左子树为空
+    if (node-&gt;mLeft == _rbtree_null_node)
+    {
+        x = node-&gt;mRight;
+        //删除节点操作
+        //删除节点是根节点
+        if (node-&gt;mParent == _rbtree_null_node)
+            cthis-&gt;mRoot = x;
+        // node是左节点
+        else if (node == node-&gt;mParent-&gt;mLeft)
+            node-&gt;mParent-&gt;mLeft = x;
+        else // node是右节点
+            node-&gt;mParent-&gt;mRight = x;
+        if (x != _rbtree_null_node)
+            x-&gt;mParent = node-&gt;mParent;
+
+        node-&gt;mParent = _rbtree_null_node;
+        node-&gt;mRight = _rbtree_null_node;
+    } //待删节点，右子树为空
+    else if (node-&gt;mRight == _rbtree_null_node)
+    {
+        x = node-&gt;mLeft;
+        //删除节点操作
+        //删除节点是根节点
+        if (node-&gt;mParent == _rbtree_null_node)
+            cthis-&gt;mRoot = x;
+        // node是左节点
+        else if (node == node-&gt;mParent-&gt;mLeft)
+            node-&gt;mParent-&gt;mLeft = x;
+        else // node是右节点
+            node-&gt;mParent-&gt;mRight = x;
+
+        if (x != _rbtree_null_node)
+            x-&gt;mParent = node-&gt;mParent;
+
+        node-&gt;mParent = _rbtree_null_node;
+        node-&gt;mLeft = _rbtree_null_node;
+
+    } //左右子树都不为空
+    else
+    {
+        //寻找node的右子树的最左节点
+        x = node-&gt;mRight;
+        //找到最左节点
+        while (x != _rbtree_null_node &amp;&amp; x-&gt;mLeft != _rbtree_null_node)
+            x = x-&gt;mLeft;
+
+        //后继节点 为 node-&gt;mRight
+
+        //删除节点操作
+        x-&gt;mParent = node-&gt;mParent;
+
+        // node是根节点
+        if (node-&gt;mParent == _rbtree_null_node)
+            cthis-&gt;mRoot = node-&gt;mRight;
+        // node是左节点
+        else if (node == node-&gt;mParent-&gt;mLeft)
+            node-&gt;mParent-&gt;mLeft = node-&gt;mRight;
+        else // node是右节点
+            node-&gt;mParent-&gt;mRight = node-&gt;mRight;
+
+        x-&gt;mLeft = node-&gt;mLeft;
+        node-&gt;mLeft-&gt;mParent = x;
+        x-&gt;mIsRed = orgClr;
+
+        node-&gt;mParent = _rbtree_null_node;
+        node-&gt;mLeft = _rbtree_null_node;
+        node-&gt;mRight = _rbtree_null_node;
+    }
+
+    //更新计数
+    --cthis-&gt;mCount;
+    //颜色为黑，调整红黑树性质
+    if (orgClr == ktrue)
+        rbtreeFixupRemove(cthis, x);
+}
+//查找节点
+kinline RBTreeNode *rbtreeSearch(RBTree *cthis, kuintptr args, RBTreeFuncSearch search)
+{
+    RBTreeNode *node = cthis-&gt;mRoot;
+    Result res;
+    while (node != _rbtree_null_node)
+    {
+        res = search(node, args);
+        if (res == CmpEqual)
+            break;
+        else if (res == CmpLess)
+            node = node-&gt;mLeft;
+        else
+            node = node-&gt;mRight;
+    }
+    return node;
+}
+
+</code></pre>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[常用hash函数C语言实现]]></title>
+        <id>https://kirlang.github.io/chang-yong-hash-han-shu-c-yu-yan-shi-xian/</id>
+        <link href="https://kirlang.github.io/chang-yong-hash-han-shu-c-yu-yan-shi-xian/">
+        </link>
+        <updated>2022-10-09T12:09:54.000Z</updated>
+        <content type="html"><![CDATA[<pre><code class="language-C">unsigned int RSHash(char* str, unsigned int len)
+{
+  unsigned int b  = 378551;
+  unsigned int a  = 63689;
+  unsigned int hash = 0;
+  unsigned int i  = 0;
+ 
+  for(i = 0; i &lt; len; str++, i++)
+  {
+   hash = hash * a + (*str);
+   a  = a * b;
+  }
+ 
+  return hash;
+}
+/* End Of RS Hash Function */
+ 
+ 
+unsigned int JSHash(char* str, unsigned int len)
+{
+  unsigned int hash = 1315423911;
+  unsigned int i  = 0;
+ 
+  for(i = 0; i &lt; len; str++, i++)
+  {
+   hash ^= ((hash &lt;&lt; 5) + (*str) + (hash &gt;&gt; 2));
+  }
+ 
+  return hash;
+}
+/* End Of JS Hash Function */
+ 
+ 
+unsigned int PJWHash(char* str, unsigned int len)
+{
+  const unsigned int BitsInUnsignedInt = (unsigned int)(sizeof(unsigned int) * 8);
+  const unsigned int ThreeQuarters   = (unsigned int)((BitsInUnsignedInt * 3) / 4);
+  const unsigned int OneEighth     = (unsigned int)(BitsInUnsignedInt / 8);
+  const unsigned int HighBits     = (unsigned int)(0xFFFFFFFF) &lt;&lt; (BitsInUnsignedInt - OneEighth);
+  unsigned int hash       = 0;
+  unsigned int test       = 0;
+  unsigned int i         = 0;
+ 
+  for(i = 0; i &lt; len; str++, i++)
+  {
+   hash = (hash &lt;&lt; OneEighth) + (*str);
+ 
+   if((test = hash &amp; HighBits) != 0)
+   {
+     hash = (( hash ^ (test &gt;&gt; ThreeQuarters)) &amp; (~HighBits));
+   }
+  }
+ 
+  return hash;
+}
+/* End Of P. J. Weinberger Hash Function */
+ 
+ 
+unsigned int ELFHash(char* str, unsigned int len)
+{
+  unsigned int hash = 0;
+  unsigned int x  = 0;
+  unsigned int i  = 0;
+ 
+  for(i = 0; i &lt; len; str++, i++)
+  {
+   hash = (hash &lt;&lt; 4) + (*str);
+   if((x = hash &amp; 0xF0000000L) != 0)
+   {
+     hash ^= (x &gt;&gt; 24);
+   }
+   hash &amp;= ~x;
+  }
+ 
+  return hash;
+}
+/* End Of ELF Hash Function */
+ 
+ 
+unsigned int BKDRHash(char* str, unsigned int len)
+{
+  unsigned int seed = 131; /* 31 131 1313 13131 131313 etc.. */
+  unsigned int hash = 0;
+  unsigned int i  = 0;
+ 
+  for(i = 0; i &lt; len; str++, i++)
+  {
+   hash = (hash * seed) + (*str);
+  }
+ 
+  return hash;
+}
+/* End Of BKDR Hash Function */
+ 
+ 
+unsigned int SDBMHash(char* str, unsigned int len)
+{
+  unsigned int hash = 0;
+  unsigned int i  = 0;
+ 
+  for(i = 0; i &lt; len; str++, i++)
+  {
+   hash = (*str) + (hash &lt;&lt; 6) + (hash &lt;&lt; 16) - hash;
+  }
+ 
+  return hash;
+}
+/* End Of SDBM Hash Function */
+ 
+ 
+unsigned int DJBHash(char* str, unsigned int len)
+{
+  unsigned int hash = 5381;
+  unsigned int i  = 0;
+ 
+  for(i = 0; i &lt; len; str++, i++)
+  {
+   hash = ((hash &lt;&lt; 5) + hash) + (*str);
+  }
+ 
+  return hash;
+}
+/* End Of DJB Hash Function */
+ 
+ 
+unsigned int DEKHash(char* str, unsigned int len)
+{
+  unsigned int hash = len;
+  unsigned int i  = 0;
+ 
+  for(i = 0; i &lt; len; str++, i++)
+  {
+   hash = ((hash &lt;&lt; 5) ^ (hash &gt;&gt; 27)) ^ (*str);
+  }
+  return hash;
+}
+/* End Of DEK Hash Function */
+ 
+ 
+unsigned int BPHash(char* str, unsigned int len)
+{
+  unsigned int hash = 0;
+  unsigned int i  = 0;
+  for(i = 0; i &lt; len; str++, i++)
+  {
+   hash = hash &lt;&lt; 7 ^ (*str);
+  }
+ 
+  return hash;
+}
+/* End Of BP Hash Function */
+ 
+ 
+unsigned int FNVHash(char* str, unsigned int len)
+{
+  const unsigned int fnv_prime = 0x811C9DC5;
+  unsigned int hash   = 0;
+  unsigned int i     = 0;
+ 
+  for(i = 0; i &lt; len; str++, i++)
+  {
+   hash *= fnv_prime;
+   hash ^= (*str);
+  }
+ 
+  return hash;
+}
+/* End Of FNV Hash Function */
+ 
+ 
+unsigned int APHash(char* str, unsigned int len)
+{
+  unsigned int hash = 0xAAAAAAAA;
+  unsigned int i  = 0;
+ 
+  for(i = 0; i &lt; len; str++, i++)
+  {
+   hash ^= ((i &amp; 1) == 0) ? ( (hash &lt;&lt; 7) ^ (*str) * (hash &gt;&gt; 3)) :
+                (~((hash &lt;&lt; 11) + ((*str) ^ (hash &gt;&gt; 5))));
+  }
+ 
+  return hash;
+}
+</code></pre>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[CRC16常见几个标准的算法及C语言实现]]></title>
+        <id>https://kirlang.github.io/crc16-chang-jian-ji-ge-biao-zhun-de-suan-fa-ji-c-yu-yan-shi-xian/</id>
+        <link href="https://kirlang.github.io/crc16-chang-jian-ji-ge-biao-zhun-de-suan-fa-ji-c-yu-yan-shi-xian/">
+        </link>
+        <updated>2022-10-09T11:53:27.000Z</updated>
+        <content type="html"><![CDATA[<h2 id="crc16常见的标准有以下几种被用在各个规范中其算法原理基本一致就是在数据的输入和输出有所差异下边把这些标准的差异列出并给出c语言的算法实现">CRC16常见的标准有以下几种，被用在各个规范中，其算法原理基本一致，就是在数据的输入和输出有所差异，下边把这些标准的差异列出，并给出C语言的算法实现。</h2>
+<p>CRC16_CCITT：多项式x16+x12+x5+1（0x1021），初始值0x0000，低位在前，高位在后，结果与0x0000异或<br>
+CRC16_CCITT_FALSE：多项式x16+x12+x5+1（0x1021），初始值0xFFFF，低位在后，高位在前，结果与0x0000异或<br>
+CRC16_XMODEM：多项式x16+x12+x5+1（0x1021），初始值0x0000，低位在后，高位在前，结果与0x0000异或<br>
+CRC16_X25：多项式x16+x12+x5+1（0x1021），初始值0x0000，低位在前，高位在后，结果与0xFFFF异或<br>
+CRC16_MODBUS：多项式x16+x15+x2+1（0x8005），初始值0xFFFF，低位在前，高位在后，结果与0x0000异或<br>
+CRC16_IBM：多项式x16+x15+x2+1（0x8005），初始值0x0000，低位在前，高位在后，结果与0x0000异或<br>
+CRC16_MAXIM：多项式x16+x15+x2+1（0x8005），初始值0x0000，低位在前，高位在后，结果与0xFFFF异或<br>
+CRC16_USB：多项式x16+x15+x2+1（0x8005），初始值0xFFFF，低位在前，高位在后，结果与0xFFFF异或<br>
+<img src="https://kirlang.github.io/post-images/1665316594202.png" alt="" loading="lazy"></p>
+<h2 id="多项式产生">多项式产生：</h2>
+<p>如x16+x12+x5+1<br>
+x16表示第16位为1，x5表示第5位为1<br>
+(1 &lt;&lt; 16) | (1 &lt;&lt; 12) | (1 &lt;&lt; 5) | (1) = 0x11021<br>
+但是CRC16只取低16位，写成16进制数就是 0x1021</p>
+<h2 id="crc16的算法原理">CRC16的算法原理：</h2>
+<p>1.根据CRC16的标准选择初值CRCIn的值。<br>
+2.将数据的第一个字节与CRCIn高8位异或。<br>
+3.判断最高位，若该位为 0 左移一位，若为 1 左移一位再与多项式Hex码异或。<br>
+4.重复3直至8位全部移位计算结束。<br>
+5.重复将所有输入数据操作完成以上步骤，所得16位数即16位CRC校验码。</p>
+<h2 id="根据算法原理与标准要求就能简单的写出具体程序">根据算法原理与标准要求就能简单的写出具体程序：</h2>
+<p>CRC算法参数模型解释：<br>
+NAME：参数模型名称。<br>
+WIDTH：宽度，即CRC比特数。<br>
+POLY：生成项的简写，以16进制表示。例如：CRC-32即是0x04C11DB7，忽略了最高位的&quot;1&quot;，即完整的生    成项是0x104C11DB7。<br>
+INIT：这是算法开始时寄存器（crc）的初始化预置值，十六进制表示。<br>
+REFIN：待测数据的每个字节是否按位反转，True或False。<br>
+REFOUT：在计算后之后，异或输出之前，整个数据是否按位反转，True或False。<br>
+XOROUT：计算结果与此参数异或后得到最终的CRC值。<br>
+Alias：别名及其应用范围。</p>
+<pre><code class="language-C">****************************Info********************************************** 
+ * Name:    CRC-16/CCITT        x16+x12+x5+1 
+ * Width:    16
+ * Poly:    0x1021 
+ * Init:    0x0000 
+ * Refin:   True 
+ * Refout:  True 
+ * Xorout:  0x0000 
+ * Alias:   CRC-CCITT,CRC-16/CCITT-TRUE,CRC-16/KERMIT 
+ *****************************************************************************/ 
+#if 0
+unsigned short CRC16_CCITT(unsigned char *data, unsigned int datalen)
+{
+    unsigned short wCRCin = 0x0000;
+    unsigned short wCPoly = 0x1021;
+    unsigned char wChar = 0;
+    
+    while (datalen--)     
+    {
+        wChar = *(data++);
+        InvertUint8(&amp;wChar,&amp;wChar);
+        wCRCin ^= (wChar &lt;&lt; 8);
+        for(int i = 0;i &lt; 8;i++)
+        {
+            if(wCRCin &amp; 0x8000)
+                wCRCin = (wCRCin &lt;&lt; 1) ^ wCPoly;
+            else
+                wCRCin = wCRCin &lt;&lt; 1;
+        }
+    }
+    InvertUint16(&amp;wCRCin,&amp;wCRCin);
+    return (wCRCin);
+}
+#else 
+//这里为了效率，我们不需要将所有Refin和refout为true的输入输出数据移位转换
+//只需要将poly二项式转换后，运算时将左移变为右移
+unsigned short CRC16_CCITT(unsigned char *data, unsigned int datalen)
+{
+    unsigned short wCRCin = 0x0000;
+    unsigned short wCPoly = 0x1021;
+    unsigned char wChar = 0;
+    
+    InvertUint16(&amp;wCPoly,&amp;wCPoly);
+    while (datalen--)     
+    {
+        wCRCin ^= *(data++);
+        for(int i = 0;i &lt; 8;i++)
+        {
+            if(wCRCin &amp; 0x01)
+                wCRCin = (wCRCin &gt;&gt; 1) ^ wCPoly;
+            else
+                wCRCin = wCRCin &gt;&gt; 1;
+        }
+    }
+    return (wCRCin);
+}
+#endif
+/****************************Info********************************************** 
+ * Name:    CRC-16/CCITT-FALSE   x16+x12+x5+1 
+ * Width:    16 
+ * Poly:    0x1021 
+ * Init:    0xFFFF 
+ * Refin:   False 
+ * Refout:  False 
+ * Xorout:  0x0000 
+ * Note: 
+ *****************************************************************************/ 
+unsigned short CRC16_CCITT_FALSE(unsigned char *data, unsigned int datalen)
+{
+    unsigned short wCRCin = 0xFFFF;
+    unsigned short wCPoly = 0x1021;
+    
+    while (datalen--)     
+    {
+        wCRCin ^= *(data++) &lt;&lt; 8;
+        for(int i = 0;i &lt; 8;i++)
+        {
+            if(wCRCin &amp; 0x8000)
+                wCRCin = (wCRCin &lt;&lt; 1) ^ wCPoly;
+            else
+                wCRCin = wCRCin &lt;&lt; 1;
+        }
+    }
+    return (wCRCin);
+}
+/****************************Info********************************************** 
+ * Name:    CRC-16/XMODEM       x16+x12+x5+1 
+ * Width:    16 
+ * Poly:    0x1021 
+ * Init:    0x0000 
+ * Refin:   False 
+ * Refout:  False 
+ * Xorout:  0x0000 
+ * Alias:   CRC-16/ZMODEM,CRC-16/ACORN 
+ *****************************************************************************/ 
+unsigned short CRC16_XMODEM(unsigned char *data, unsigned int datalen)
+{
+    unsigned short wCRCin = 0x0000;
+    unsigned short wCPoly = 0x1021;
+    
+    while (datalen--)     
+    {
+        wCRCin ^= (*(data++) &lt;&lt; 8);
+        for(int i = 0;i &lt; 8;i++)
+        {
+            if(wCRCin &amp; 0x8000)
+                wCRCin = (wCRCin &lt;&lt; 1) ^ wCPoly;
+            else
+                wCRCin = wCRCin &lt;&lt; 1;
+        }
+    }
+    return (wCRCin);
+}
+/****************************Info********************************************** 
+ * Name:    CRC-16/X25          x16+x12+x5+1 
+ * Width:    16 
+ * Poly:    0x1021 
+ * Init:    0xFFFF 
+ * Refin:   True 
+ * Refout:  True 
+ * Xorout:  0XFFFF 
+ * Note: 
+ *****************************************************************************/
+#if 0 
+unsigned short CRC16_X25(unsigned char *data, unsigned int datalen)
+{
+    unsigned short wCRCin = 0xFFFF;
+    unsigned short wCPoly = 0x1021;
+    unsigned char wChar = 0;
+ 
+    while (datalen--)     
+    {
+        wChar = *(data++);
+        InvertUint8(&amp;wChar,&amp;wChar);
+        wCRCin ^= (wChar &lt;&lt; 8);
+        for(int i = 0;i &lt; 8;i++)
+        {
+            if(wCRCin &amp; 0x8000)
+                wCRCin = (wCRCin &lt;&lt; 1) ^ wCPoly;
+            else
+                wCRCin = wCRCin &lt;&lt; 1;
+        }
+    }
+    InvertUint16(&amp;wCRCin,&amp;wCRCin);
+    return (wCRCin^0xFFFF);
+}
+#else 
+unsigned short CRC16_X25(unsigned char *data, unsigned int datalen)
+{
+    unsigned short wCRCin = 0xFFFF;
+    unsigned short wCPoly = 0x1021;
+    
+    InvertUint16(&amp;wCPoly,&amp;wCPoly);
+    while (datalen--)     
+    {
+        wCRCin ^= *(data++);
+        for(int i = 0;i &lt; 8;i++)
+        {
+            if(wCRCin &amp; 0x01)
+                wCRCin = (wCRCin &gt;&gt; 1) ^ wCPoly;
+            else
+                wCRCin = wCRCin &gt;&gt; 1;
+        }
+    }
+    return (wCRCin^0xFFFF);
+}
+#endif
+/****************************Info********************************************** 
+ * Name:    CRC-16/MODBUS       x16+x15+x2+1 
+ * Width:    16 
+ * Poly:    0x8005 
+ * Init:    0xFFFF 
+ * Refin:   True 
+ * Refout:  True 
+ * Xorout:  0x0000 
+ * Note: 
+ *****************************************************************************/
+#if 0 
+unsigned short CRC16_MODBUS(unsigned char *data, unsigned int datalen)
+{
+    unsigned short wCRCin = 0xFFFF;
+    unsigned short wCPoly = 0x8005;
+    unsigned char wChar = 0;
+    
+    while (datalen--)     
+    {
+        wChar = *(data++);
+        InvertUint8(&amp;wChar,&amp;wChar);
+        wCRCin ^= (wChar &lt;&lt; 8);
+        for(int i = 0;i &lt; 8;i++)
+        {
+            if(wCRCin &amp; 0x8000)
+                wCRCin = (wCRCin &lt;&lt; 1) ^ wCPoly;
+            else
+                wCRCin = wCRCin &lt;&lt; 1;
+        }
+    }
+    InvertUint16(&amp;wCRCin,&amp;wCRCin);
+    return (wCRCin);
+}
+#else 
+unsigned short CRC16_MODBUS(unsigned char *data, unsigned int datalen)
+{
+    unsigned short wCRCin = 0xFFFF;
+    unsigned short wCPoly = 0x8005;
+    
+    InvertUint16(&amp;wCPoly,&amp;wCPoly);
+    while (datalen--)     
+    {
+        wCRCin ^= *(data++);
+        for(int i = 0;i &lt; 8;i++)
+        {
+            if(wCRCin &amp; 0x01)
+                wCRCin = (wCRCin &gt;&gt; 1) ^ wCPoly;
+            else
+                wCRCin = wCRCin &gt;&gt; 1;
+        }
+    }
+    return (wCRCin);
+}
+#endif
+/****************************Info********************************************** 
+ * Name:    CRC-16/IBM          x16+x15+x2+1 
+ * Width:    16 
+ * Poly:    0x8005 
+ * Init:    0x0000 
+ * Refin:   True 
+ * Refout:  True 
+ * Xorout:  0x0000 
+ * Alias:   CRC-16,CRC-16/ARC,CRC-16/LHA 
+ *****************************************************************************/ 
+#if 0
+unsigned short CRC16_IBM(unsigned char *data, unsigned int datalen)
+{
+    unsigned short wCRCin = 0x0000;
+    unsigned short wCPoly = 0x8005;
+    unsigned char wChar = 0;
+    
+    while (datalen--)     
+    {
+        wChar = *(data++);
+        InvertUint8(&amp;wChar,&amp;wChar);
+        wCRCin ^= (wChar &lt;&lt; 8);
+        for(int i = 0;i &lt; 8;i++)
+        {
+            if(wCRCin &amp; 0x8000)
+                wCRCin = (wCRCin &lt;&lt; 1) ^ wCPoly;
+            else
+                wCRCin = wCRCin &lt;&lt; 1;
+        }
+    }
+    InvertUint16(&amp;wCRCin,&amp;wCRCin);
+    return (wCRCin);
+}
+#else 
+unsigned short CRC16_IBM(unsigned char *data, unsigned int datalen)
+{
+    unsigned short wCRCin = 0x0000;
+    unsigned short wCPoly = 0x8005;
+    
+    InvertUint16(&amp;wCPoly,&amp;wCPoly);
+    while (datalen--)     
+    {
+        wCRCin ^= *(data++);
+        for(int i = 0;i &lt; 8;i++)
+        {
+            if(wCRCin &amp; 0x01)
+                wCRCin = (wCRCin &gt;&gt; 1) ^ wCPoly;
+            else
+                wCRCin = wCRCin &gt;&gt; 1;
+        }
+    }
+    return (wCRCin);
+}
+#endif
+/****************************Info********************************************** 
+ * Name:    CRC-16/MAXIM        x16+x15+x2+1 
+ * Width:    16 
+ * Poly:    0x8005 
+ * Init:    0x0000 
+ * Refin:   True 
+ * Refout:  True 
+ * Xorout:  0xFFFF 
+ * Note: 
+ *****************************************************************************/
+#if 0
+unsigned short CRC16_MAXIM(unsigned char *data, unsigned int datalen)
+{
+    unsigned short wCRCin = 0x0000;
+    unsigned short wCPoly = 0x8005;
+    unsigned char wChar = 0;
+    
+    while (datalen--)     
+    {
+        wChar = *(data++);
+        InvertUint8(&amp;wChar,&amp;wChar);
+        wCRCin ^= (wChar &lt;&lt; 8);
+        for(int i = 0;i &lt; 8;i++)
+        {
+            if(wCRCin &amp; 0x8000)
+                wCRCin = (wCRCin &lt;&lt; 1) ^ wCPoly;
+            else
+                wCRCin = wCRCin &lt;&lt; 1;
+        }
+    }
+    InvertUint16(&amp;wCRCin,&amp;wCRCin);
+    return (wCRCin^0xFFFF);
+}
+#else 
+unsigned short CRC16_MAXIM(unsigned char *data, unsigned int datalen)
+{
+    unsigned short wCRCin = 0x0000;
+    unsigned short wCPoly = 0x8005;
+    
+    InvertUint16(&amp;wCPoly,&amp;wCPoly);
+    while (datalen--)     
+    {
+        wCRCin ^= *(data++);
+        for(int i = 0;i &lt; 8;i++)
+        {
+            if(wCRCin &amp; 0x01)
+                wCRCin = (wCRCin &gt;&gt; 1) ^ wCPoly;
+            else
+                wCRCin = wCRCin &gt;&gt; 1;
+        }
+    }
+    return (wCRCin^0xFFFF);
+}
+#endif
+/****************************Info********************************************** 
+ * Name:    CRC-16/USB          x16+x15+x2+1 
+ * Width:    16 
+ * Poly:    0x8005 
+ * Init:    0xFFFF 
+ * Refin:   True 
+ * Refout:  True 
+ * Xorout:  0xFFFF 
+ * Note: 
+ *****************************************************************************/ 
+#if 0
+unsigned short CRC16_USB(unsigned char *data, unsigned int datalen)
+{
+    unsigned short wCRCin = 0xFFFF;
+    unsigned short wCPoly = 0x8005;
+    unsigned char wChar = 0;
+    
+    while (datalen--)     
+    {
+        wChar = *(data++);
+        InvertUint8(&amp;wChar,&amp;wChar);
+        wCRCin ^= (wChar &lt;&lt; 8);
+        for(int i = 0;i &lt; 8;i++)
+        {
+            if(wCRCin &amp; 0x8000)
+                wCRCin = (wCRCin &lt;&lt; 1) ^ wCPoly;
+            else
+                wCRCin = wCRCin &lt;&lt; 1;
+        }
+    }
+    InvertUint16(&amp;wCRCin,&amp;wCRCin);
+    return (wCRCin^0xFFFF);
+}
+#else 
+unsigned short CRC16_USB(unsigned char *data, unsigned int datalen)
+{
+    unsigned short wCRCin = 0xFFFF;
+    unsigned short wCPoly = 0x8005;
+    
+    InvertUint16(&amp;wCPoly,&amp;wCPoly);
+    while (datalen--)     
+    {
+        wCRCin ^= *(data++);
+        for(int i = 0;i &lt; 8;i++)
+        {
+            if(wCRCin &amp; 0x01)
+                wCRCin = (wCRCin &gt;&gt; 1) ^ wCPoly;
+            else
+                wCRCin = wCRCin &gt;&gt; 1;
+        }
+    }
+    return (wCRCin^0xFFFF);
+}
+#endif
+/****************************Info********************************************** 
+ * Name:    CRC-16/DNP          x16+x13+x12+x11+x10+x8+x6+x5+x2+1 
+ * Width:    16 
+ * Poly:    0x3D65 
+ * Init:    0x0000 
+ * Refin:   True 
+ * Refout:  True 
+ * Xorout:  0xFFFF 
+ * Use:     M-Bus,ect. 
+ *****************************************************************************/  
+#if 0
+unsigned short CRC16_DNP(unsigned char *data, unsigned int datalen)
+{
+    unsigned short wCRCin = 0x0000;
+    unsigned short wCPoly = 0x3D65;
+    unsigned char wChar = 0;
+    
+    while (datalen--)     
+    {
+        wChar = *(data++);
+        InvertUint8(&amp;wChar,&amp;wChar);
+        wCRCin ^= (wChar &lt;&lt; 8);
+        for(int i = 0;i &lt; 8;i++)
+        {
+            if(wCRCin &amp; 0x8000)
+                wCRCin = (wCRCin &lt;&lt; 1) ^ wCPoly;
+            else
+                wCRCin = wCRCin &lt;&lt; 1;
+        }
+    }
+    InvertUint16(&amp;wCRCin,&amp;wCRCin);
+    return (wCRCin^0xFFFF) ;
+}
+#else
+unsigned short CRC16_DNP(unsigned char *data, unsigned int datalen)
+{
+    unsigned short wCRCin = 0x0000;
+    unsigned short wCPoly = 0x3D65;
+    
+    InvertUint16(&amp;wCPoly,&amp;wCPoly);
+    while (datalen--)     
+    {
+        wCRCin ^= *(data++);
+        for(int i = 0;i &lt; 8;i++)
+        {
+            if(wCRCin &amp; 0x01)
+                wCRCin = (wCRCin &gt;&gt; 1) ^ wCPoly;
+            else
+                wCRCin = (wCRCin &gt;&gt; 1);
+        }
+    }
+    return (wCRCin^0xFFFF);
+}
+#endif
+/****************************Info********************************************** 
+ * Name:    InvertUint8 
+ * Note:     把字节颠倒过来，如0x12变成0x48
+            0x12: 0001 0010
+            0x48: 0100 1000
+ *****************************************************************************/
+void InvertUint8(unsigned char *dBuf,unsigned char *srcBuf)
+{
+    int i;
+    unsigned char tmp[4]={0};
+ 
+    for(i=0;i&lt; 8;i++)
+    {
+        if(srcBuf[0]&amp; (1 &lt;&lt; i))
+        tmp[0]|=1&lt;&lt;(7-i);
+    }
+    dBuf[0] = tmp[0];
+    
+}
+void InvertUint16(unsigned short *dBuf,unsigned short *srcBuf)
+{
+    int i;
+    unsigned short tmp[4]={0};
+ 
+    for(i=0;i&lt; 16;i++)
+    {
+        if(srcBuf[0]&amp; (1 &lt;&lt; i))
+        tmp[0]|=1&lt;&lt;(15 - i);
+    }
+    dBuf[0] = tmp[0];
+}
+void InvertUint32(unsigned int *dBuf,unsigned int *srcBuf)
+{
+    int i;
+    unsigned int tmp[4]={0};
+    
+    for(i=0;i&lt; 32;i++)
+    {
+        if(srcBuf[0]&amp; (1 &lt;&lt; i))
+        tmp[0]|=1&lt;&lt;(31 - i);
+    }
+    dBuf[0] = tmp[0];
+}
+具体验证使用这个工具，内含CRC算法的计算，和后边的博客中提到的其他算法的工具合集
+
+加密解密算法工具集
+
+CRC计算器CRC_Calc
+
+在这个基础上也加入CRC32 的校验算法
+
+/****************************Info********************************************** 
+ * Name:    CRC-32  x32+x26+x23+x22+x16+x12+x11+x10+x8+x7+x5+x4+x2+x+1 
+ * Width:    32 
+ * Poly:    0x4C11DB7 
+ * Init:    0xFFFFFFF 
+ * Refin:   True 
+ * Refout:  True 
+ * Xorout:  0xFFFFFFF 
+ * Alias:   CRC_32/ADCCP 
+ * Use:     WinRAR,ect. 
+ *****************************************************************************/  
+#if 0
+unsigned int CRC32(unsigned char *data, unsigned int datalen)
+{
+    unsigned int wCRCin = 0xFFFFFFFF;
+    unsigned int wCPoly = 0x04C11DB7;
+    unsigned int wChar = 0;
+    while (datalen--)     
+    {
+        wChar = *(data++);
+        InvertUint8((unsigned char *)&amp;wChar,(unsigned char *)&amp;wChar);
+        wCRCin ^= (wChar &lt;&lt; 24);
+        for(int i = 0;i &lt; 8;i++)
+        {
+            if(wCRCin &amp; 0x80000000)
+                wCRCin = (wCRCin &lt;&lt; 1) ^ wCPoly;
+            else
+                wCRCin = wCRCin &lt;&lt; 1;
+        }
+    }
+    InvertUint32(&amp;wCRCin,&amp;wCRCin);
+    return (wCRCin ^ 0xFFFFFFFF) ;
+}
+#else
+unsigned int CRC32(unsigned char *data, unsigned int datalen)
+{
+ 
+    unsigned int wCRCin = 0xFFFFFFFF;
+    unsigned int wCPoly = 0x04C11DB7;
+ 
+    InvertUint32(&amp;wCPoly,&amp;wCPoly);
+    while (datalen--)     
+    {
+        wCRCin ^= *(data++);
+        for(int i = 0;i &lt; 8;i++)
+        {
+            if(wCRCin &amp; 0x01)
+                wCRCin = (wCRCin &gt;&gt; 1) ^ wCPoly;
+            else
+                wCRCin = wCRCin &gt;&gt; 1;
+        }
+    }
+    return (wCRCin ^ 0xFFFFFFFF) ;
+}
+#endif
+/****************************Info********************************************** 
+ * Name:    CRC-32/MPEG-2  x32+x26+x23+x22+x16+x12+x11+x10+x8+x7+x5+x4+x2+x+1 
+ * Width:    32 
+ * Poly:    0x4C11DB7 
+ * Init:    0xFFFFFFF 
+ * Refin:   False 
+ * Refout:  False 
+ * Xorout:  0x0000000 
+ * Note: 
+ *****************************************************************************/ 
+unsigned int CRC32_MPEG(unsigned char *data, unsigned int datalen)
+{
+ 
+    unsigned int wCRCin = 0xFFFFFFFF;
+    unsigned int wCPoly = 0x04C11DB7;
+    unsigned int wChar = 0;
+    while (datalen--)     
+    {
+        wChar = *(data++);
+        wCRCin ^= (wChar &lt;&lt; 24);
+        for(int i = 0;i &lt; 8;i++)
+        {
+            if(wCRCin &amp; 0x80000000)
+                wCRCin = (wCRCin &lt;&lt; 1) ^ wCPoly;
+            else
+                wCRCin = wCRCin &lt;&lt; 1;
+        }
+    }
+    return (wCRCin) ;
+}
+对于CRC32可能还有其他的多项式和初始值和结果值是否需要异或以及输入数据是否需要位序倒转等要求在源码中修改
+
+本次在CRC算法的基础上加入CRC-4,5,6,7,8的各个算法实现：
+/****************************Info********************************************** 
+ * Name:    CRC-4/ITU    x4+x+1 
+ * Width:    4
+ * Poly:    0x03 
+ * Init:    0x00 
+ * Refin:   True 
+ * Refout:  True 
+ * Xorout:  0x00 
+ * Note: 
+ *****************************************************************************/
+unsigned char CRC4_ITU(unsigned char *data, unsigned int datalen)
+{
+    unsigned char wCRCin = 0x00;
+    unsigned char wCPoly = 0x03;
+    unsigned char wChar = 0;
+    
+    while (datalen--)     
+    {
+        wChar = *(data++);
+        InvertUint8(&amp;wChar,&amp;wChar);
+        wCRCin ^= (wChar);
+        for(int i = 0;i &lt; 8;i++)
+        {
+            if(wCRCin &amp; 0x80)
+                wCRCin = (wCRCin &lt;&lt; 1) ^ (wCPoly &lt;&lt; 4);
+            else
+                wCRCin = wCRCin &lt;&lt; 1;
+        }
+    }
+    InvertUint8(&amp;wCRCin,&amp;wCRCin);
+    return (wCRCin);
+}
+/****************************Info********************************************** 
+ * Name:    CRC-5/EPC    x5+x3+1 
+ * Width:    5
+ * Poly:    0x09 
+ * Init:    0x09 
+ * Refin:   False 
+ * Refout:  False 
+ * Xorout:  0x00 
+ * Note: 
+ *****************************************************************************/
+unsigned char CRC5_EPC(unsigned char *data, unsigned int datalen)
+{
+    unsigned char wCRCin = 0x09&lt;&lt;3;
+    unsigned char wCPoly = 0x09&lt;&lt;3;
+    
+    while (datalen--)     
+    {
+        wCRCin ^= *(data++);
+        for(int i = 0;i &lt; 8;i++)
+        {
+            if(wCRCin &amp; 0x80)
+                wCRCin = (wCRCin &lt;&lt; 1) ^ (wCPoly);
+            else
+                wCRCin = wCRCin &lt;&lt; 1;
+        }
+    }
+    return (wCRCin &gt;&gt; 3);
+}
+/****************************Info********************************************** 
+ * Name:    CRC-5/USB    x5+x2+1 
+ * Width:    5
+ * Poly:    0x05 
+ * Init:    0x1F 
+ * Refin:   True 
+ * Refout:  True 
+ * Xorout:  0x1F 
+ * Note: 
+ *****************************************************************************/
+#if 0
+unsigned char CRC5_USB(unsigned char *data, unsigned int datalen)
+{
+    unsigned char wCRCin = 0x1F&lt;&lt;3;
+    unsigned char wCPoly = 0x05;
+    unsigned char wChar = 0;
+    
+    while (datalen--)     
+    {
+        wChar = *(data++);
+        InvertUint8(&amp;wChar,&amp;wChar);
+        wCRCin ^= (wChar);
+        for(int i = 0;i &lt; 8;i++)
+        {
+            if(wCRCin &amp; 0x80)
+                wCRCin = (wCRCin &lt;&lt; 1) ^ (wCPoly &lt;&lt; 3);
+            else
+                wCRCin = wCRCin &lt;&lt; 1;
+        }
+    }
+    InvertUint8(&amp;wCRCin,&amp;wCRCin);
+    return (wCRCin^0x1F);
+}
+#else
+unsigned char CRC5_USB(unsigned char *data, unsigned int datalen)  
+{  
+    unsigned char wCRCin = 0x1F;
+    unsigned char wCPoly = 0x05;
+    
+    InvertUint8(&amp;wCPoly,&amp;wCPoly);
+    while (datalen--)     
+    {
+        wCRCin ^= *(data++);
+        for(int i = 0;i &lt; 8;i++)
+        {
+            if(wCRCin &amp; 0x01)
+                wCRCin = (wCRCin &gt;&gt; 1) ^ (wCPoly &gt;&gt; 3);
+            else
+                wCRCin = wCRCin &gt;&gt; 1;
+        }
+    }
+    return (wCRCin^0x1F); 
+} 
+#endif
+/****************************Info********************************************** 
+ * Name:    CRC-5/ITU    x5+x4+x2+1  
+ * Width:    5
+ * Poly:    0x15 
+ * Init:    0x00 
+ * Refin:   True 
+ * Refout:  True 
+ * Xorout:  0x00 
+ * Note: 
+ *****************************************************************************/
+ #if 0
+unsigned char CRC5_ITU(unsigned char *data, unsigned int datalen)
+{
+    unsigned char wCRCin = 0x00;
+    unsigned char wCPoly = 0x15;
+    unsigned char wChar = 0;
+    
+    while (datalen--)     
+    {
+        wChar = *(data++);
+        InvertUint8(&amp;wChar,&amp;wChar);
+        wCRCin ^= (wChar);
+        for(int i = 0;i &lt; 8;i++)
+        {
+            if(wCRCin &amp; 0x80)
+                wCRCin = (wCRCin &lt;&lt; 1) ^ (wCPoly &lt;&lt; 3);
+            else
+                wCRCin = wCRCin &lt;&lt; 1;
+        }
+    }
+    InvertUint8(&amp;wCRCin,&amp;wCRCin);
+    return (wCRCin);
+}
+#else
+unsigned char CRC5_ITU(unsigned char *data, unsigned int datalen)  
+{  
+    unsigned char wCRCin = 0x00;
+    unsigned char wCPoly = 0x15;
+    
+    InvertUint8(&amp;wCPoly,&amp;wCPoly);
+    while (datalen--)     
+    {
+        wCRCin ^= *(data++);
+        for(int i = 0;i &lt; 8;i++)
+        {
+            if(wCRCin &amp; 0x01)
+                wCRCin = (wCRCin &gt;&gt; 1) ^ (wCPoly &gt;&gt; 3);
+            else
+                wCRCin = wCRCin &gt;&gt; 1;
+        }
+    }
+    return (wCRCin); 
+} 
+#endif
+/****************************Info********************************************** 
+ * Name:    CRC-6/ITU    x6+x+1 
+ * Width:    6
+ * Poly:    0x03 
+ * Init:    0x00 
+ * Refin:   True 
+ * Refout:  True 
+ * Xorout:  0x00 
+ * Note: 
+ *****************************************************************************/
+unsigned char CRC6_ITU(unsigned char *data, unsigned int datalen)
+{
+    unsigned char wCRCin = 0x00;
+    unsigned char wCPoly = 0x03;
+    unsigned char wChar = 0;
+    
+    while (datalen--)     
+    {
+        wChar = *(data++);
+        InvertUint8(&amp;wChar,&amp;wChar);
+        wCRCin ^= (wChar);
+        for(int i = 0;i &lt; 8;i++)
+        {
+            if(wCRCin &amp; 0x80)
+                wCRCin = (wCRCin &lt;&lt; 1) ^ (wCPoly &lt;&lt; 2);
+            else
+                wCRCin = wCRCin &lt;&lt; 1;
+        }
+    }
+    InvertUint8(&amp;wCRCin,&amp;wCRCin);
+    return (wCRCin);
+}
+/****************************Info********************************************** 
+ * Name:    CRC-7/MMC           x7+x3+1  
+ * Width:    7
+ * Poly:    0x09 
+ * Init:    0x00 
+ * Refin:   False 
+ * Refout:  False 
+ * Xorout:  0x00 
+ * Use:     MultiMediaCard,SD,ect. 
+ *****************************************************************************/
+unsigned char CRC7_MMC(unsigned char *data, unsigned int datalen)
+{
+    unsigned char wCRCin = 0x00;
+    unsigned char wCPoly = 0x09;
+    
+    while (datalen--)     
+    {
+        wCRCin ^= *(data++);
+        for(int i = 0;i &lt; 8;i++)
+        {
+            if(wCRCin &amp; 0x80)
+                wCRCin = (wCRCin &lt;&lt; 1) ^ (wCPoly&lt;&lt;1);
+            else
+                wCRCin = wCRCin &lt;&lt; 1;
+        }
+    }
+    return (wCRCin&gt;&gt;1);
+}
+/****************************Info********************************************** 
+ * Name:    CRC-8               x8+x2+x+1 
+ * Width:    8 
+ * Poly:    0x07 
+ * Init:    0x00 
+ * Refin:   False 
+ * Refout:  False 
+ * Xorout:  0x00 
+ * Note: 
+ *****************************************************************************/
+unsigned char CRC8(unsigned char *data, unsigned int datalen)
+{
+    unsigned char wCRCin = 0x00;
+    unsigned char wCPoly = 0x07;
+    
+    while (datalen--)     
+    {
+        wCRCin ^= *(data++);
+        for(int i = 0;i &lt; 8;i++)
+        {
+            if(wCRCin &amp; 0x80)
+                wCRCin = (wCRCin &lt;&lt; 1) ^ wCPoly;
+            else
+                wCRCin = wCRCin &lt;&lt; 1;
+        }
+    }
+    return (wCRCin);
+}
+/****************************Info********************************************** 
+ * Name:    CRC-8/ITU           x8+x2+x+1 
+ * Width:    8 
+ * Poly:    0x07 
+ * Init:    0x00 
+ * Refin:   False 
+ * Refout:  False 
+ * Xorout:  0x55 
+ * Alias:   CRC-8/ATM 
+ *****************************************************************************/
+unsigned char CRC8_ITU(unsigned char *data, unsigned int datalen)
+{
+    unsigned char wCRCin = 0x00;
+    unsigned char wCPoly = 0x07;
+    
+    while (datalen--)     
+    {
+        wCRCin ^= *(data++);
+        for(int i = 0;i &lt; 8;i++)
+        {
+            if(wCRCin &amp; 0x80)
+                wCRCin = (wCRCin &lt;&lt; 1) ^ wCPoly;
+            else
+                wCRCin = wCRCin &lt;&lt; 1;
+        }
+    }
+    return (wCRCin^0x55);
+}
+/****************************Info********************************************** 
+ * Name:    CRC-8/ROHC          x8+x2+x+1 
+ * Width:    8 
+ * Poly:    0x07 
+ * Init:    0xFF 
+ * Refin:   True 
+ * Refout:  True 
+ * Xorout:  0x00 
+ * Note: 
+ *****************************************************************************/
+#if 0
+unsigned char CRC8_ROHC(unsigned char *data, unsigned int datalen)
+{
+    unsigned char wCRCin = 0xFF;
+    unsigned char wCPoly = 0x07;
+    unsigned char wChar = 0;
+    
+    while (datalen--)     
+    {
+        wChar = *(data++);
+        InvertUint8(&amp;wChar,&amp;wChar);
+        wCRCin ^= (wChar &lt;&lt; 0);
+        for(int i = 0;i &lt; 8;i++)
+        {
+            if(wCRCin &amp; 0x80)
+                wCRCin = (wCRCin &lt;&lt; 1) ^ wCPoly;
+            else
+                wCRCin = wCRCin &lt;&lt; 1;
+        }
+    }
+    InvertUint8(&amp;wCRCin,&amp;wCRCin);
+    return (wCRCin);
+}
+#else 
+unsigned char CRC8_ROHC(unsigned char *data, unsigned int datalen)
+{
+    unsigned char wCRCin = 0xFF;
+    unsigned char wCPoly = 0x07;
+    
+    InvertUint8(&amp;wCPoly,&amp;wCPoly);
+    while (datalen--)     
+    {
+        wCRCin ^= *(data++);
+        for(int i = 0;i &lt; 8;i++)
+        {
+            if(wCRCin &amp; 0x01)
+                wCRCin = (wCRCin &gt;&gt; 1) ^ wCPoly;
+            else
+                wCRCin = wCRCin &gt;&gt; 1;
+        }
+    }
+    return (wCRCin);
+}
+#endif
+/****************************Info********************************************** 
+ * Name:    CRC-8/MAXIM         x8+x5+x4+1 
+ * Width:    8 
+ * Poly:    0x31 
+ * Init:    0x00 
+ * Refin:   True 
+ * Refout:  True 
+ * Xorout:  0x00 
+ * Alias:   DOW-CRC,CRC-8/IBUTTON 
+ * Use:     Maxim(Dallas)'s some devices,e.g. DS18B20 
+ *****************************************************************************/ 
+#if 0
+unsigned char CRC8_MAXIM(unsigned char *data, unsigned int datalen)
+{
+    unsigned char wCRCin = 0x00;
+    unsigned char wCPoly = 0x31;
+    unsigned char wChar = 0;
+    
+    while (datalen--)     
+    {
+        wChar = *(data++);
+        InvertUint8(&amp;wChar,&amp;wChar);
+        wCRCin ^= (wChar &lt;&lt; 0);
+        for(int i = 0;i &lt; 8;i++)
+        {
+            if(wCRCin &amp; 0x80)
+                wCRCin = (wCRCin &lt;&lt; 1) ^ wCPoly;
+            else
+                wCRCin = wCRCin &lt;&lt; 1;
+        }
+    }
+    InvertUint8(&amp;wCRCin,&amp;wCRCin);
+    return (wCRCin);
+}
+#else 
+unsigned char CRC8_MAXIM(unsigned char *data, unsigned int datalen)
+{
+    unsigned char wCRCin = 0x00;
+    unsigned char wCPoly = 0x31;
+    
+    InvertUint8(&amp;wCPoly,&amp;wCPoly);
+    while (datalen--)     
+    {
+        wCRCin ^= *(data++);
+        for(int i = 0;i &lt; 8;i++)
+        {
+            if(wCRCin &amp; 0x01)
+                wCRCin = (wCRCin &gt;&gt; 1) ^ wCPoly;
+            else
+                wCRCin = wCRCin &gt;&gt; 1;
+        }
+    }
+    return (wCRCin);
+}
+#endif
+</code></pre>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[双链表容器设计与实现]]></title>
+        <id>https://kirlang.github.io/shuang-lian-biao-rong-qi-she-ji-yu-shi-xian/</id>
+        <link href="https://kirlang.github.io/shuang-lian-biao-rong-qi-she-ji-yu-shi-xian/">
+        </link>
+        <updated>2022-10-06T08:20:27.000Z</updated>
+        <content type="html"><![CDATA[<h1 id="节点和链表定义">节点和链表定义</h1>
+<pre><code class="language-C">//通用双(循环)链表容器,类似于linux内核中的链表
+typedef struct ListNode ListNode;
+typedef struct List List;
+//链表节点,内嵌到数据中
+struct ListNode
+{
+    ListNode *mNext;
+    ListNode *mPrev;
+};
+//链表
+struct List
+{
+    ListNode mRoot; //链表根节点
+    kuint mCount;   //节点计数
+};
+</code></pre>
+<h1 id="节点和链表初始化">节点和链表初始化</h1>
+<pre><code class="language-C">//链表节点初始化,指向自身地址
+kinline void listInitNode(ListNode *cthis)
+{
+    cthis-&gt;mNext = cthis;
+    cthis-&gt;mPrev = cthis;
+}
+//初始化链表
+kinline void listInit(List* cthis){
+    cthis-&gt;mCount = 0;
+    cthis-&gt;mRoot.mNext = &amp;cthis-&gt;mRoot;
+    cthis-&gt;mRoot.mPrev = &amp;cthis-&gt;mRoot;
+}
+</code></pre>
+<h1 id="链表插入算法">链表插入算法</h1>
+<pre><code class="language-C">//在链表头部插入
+kinline void listInsertEntry(List* cthis, ListNode *aNew) {
+    ListNode *head = cthis-&gt;mRoot.mNext;
+    aNew-&gt;mPrev = &amp;cthis-&gt;mRoot;
+    aNew-&gt;mNext = head;
+    head-&gt;mPrev = aNew;
+    cthis-&gt;mRoot.mNext = aNew;
+    ++cthis-&gt;mCount;
+}
+//在链表尾部插入
+kinline void listInsertTail(List* cthis, ListNode *aNew) { 
+    ListNode* tail=cthis-&gt;mRoot.mPrev;
+    aNew-&gt;mPrev = tail;
+    aNew-&gt;mNext = &amp;cthis-&gt;mRoot;
+    tail-&gt;mNext = aNew;
+    cthis-&gt;mRoot.mPrev = aNew;
+    ++cthis-&gt;mCount;
+}
+//在iter前面插入
+kinline void listInsert(List* cthis, ListNode* iter,ListNode *aNew){
+    iter-&gt;mPrev-&gt;mNext = aNew;
+    aNew-&gt;mPrev = iter-&gt;mPrev;
+    aNew-&gt;mNext = iter;
+    iter-&gt;mPrev = aNew;
+    ++cthis-&gt;mCount;
+}
+</code></pre>
+<h1 id="链表删除算法">链表删除算法</h1>
+<pre><code class="language-C">//移除节点(不会释放内存,移除的节点指向自身)
+kinline ListNode * listRemove(List* cthis, ListNode *aEntry)
+{
+    if (&amp;cthis-&gt;mRoot == aEntry)
+        return _list_null_node;
+    ListNode *prev = aEntry-&gt;mPrev;
+    ListNode *next = aEntry-&gt;mNext;
+    prev-&gt;mNext = next;
+    next-&gt;mPrev = prev;
+
+    aEntry-&gt;mNext = aEntry;
+    aEntry-&gt;mPrev = aEntry;
+
+    --cthis-&gt;mCount;
+    return aEntry;
+}
+//移除头部节点
+kinline ListNode * listRemoveEntry(List *cthis) { return listRemove(cthis, cthis-&gt;mRoot.mNext); }
+//移除尾部节点
+kinline ListNode * listRemoveTail(List *cthis) { return listRemove(cthis, cthis-&gt;mRoot.mPrev); }
+</code></pre>
+<h1 id="链表查询算法">链表查询算法</h1>
+<pre><code class="language-C">//查找接口函数
+typedef Result (*ListFuncSearch)(kintptr,kintptr);
+//查找节点
+kinline ListNode* listSearch(List* cthis,kintptr args,ListFuncSearch search){
+    ListNode* pos;
+    _list_foreach(pos,&amp;cthis-&gt;mRoot){
+        if(search(pos,args)==CmpEqual)
+        return pos;
+    }
+    return _list_null_node;
+}
+//获取第一个节点
+kinline ListNode* listEntry(List*cthis){
+    ListNode *ret = cthis-&gt;mRoot.mNext;
+    if (ret == &amp;cthis-&gt;mRoot)
+        ret = _list_null_node;
+    return ret;
+}
+//获取最后一个节点
+kinline ListNode* listTail(List*cthis){
+    ListNode *ret = cthis-&gt;mRoot.mPrev;
+    if (ret == &amp;cthis-&gt;mRoot)
+        ret = _list_null_node;
+    return ret;
+}
+
+</code></pre>
+<h1 id="链表顺序访问宏定义">链表顺序访问宏定义</h1>
+<pre><code class="language-C">//链表序列访问宏
+#define _list_foreach(pos, root) \
+    for (pos = (root)-&gt;mNext; pos != (root); pos = pos-&gt;mNext)
+</code></pre>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[C/C++ 宏定义技巧]]></title>
+        <id>https://kirlang.github.io/cc-hong-ding-yi-ji-qiao-zhi-he/</id>
+        <link href="https://kirlang.github.io/cc-hong-ding-yi-ji-qiao-zhi-he/">
+        </link>
+        <updated>2022-09-01T12:28:25.000Z</updated>
+        <content type="html"><![CDATA[<h1 id="转字符串宏">转字符串宏</h1>
+<pre><code># 运算符用在预编译时期，用于将宏参数转换为字符串，即是加上双引号
+</code></pre>
+<h1 id="连接符号宏">连接符号宏</h1>
+<pre><code>## 运算符用于在预编译期粘连两个符号，增大了宏的使用灵活性！
+</code></pre>
+<h1 id="可变参数宏">可变参数宏</h1>
+<pre><code>#define OP(Fmt,...) printf(Fmt,__VA_ARGS__)
+</code></pre>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[c++union对象使用技巧]]></title>
+        <id>https://kirlang.github.io/cunion-dui-xiang-shi-yong-ji-qiao/</id>
+        <link href="https://kirlang.github.io/cunion-dui-xiang-shi-yong-ji-qiao/">
+        </link>
+        <updated>2022-07-17T05:46:14.000Z</updated>
+        <content type="html"><![CDATA[<h1 id="底层原理">底层原理</h1>
+<pre><code>利用 c++ 黑魔法 new，对联合体对象内部的类对象进行初始化构造。
+</code></pre>
+<h1 id="所需技术">所需技术</h1>
+<pre><code>1. 手动对象构造
+2. 手动对象析构
+</code></pre>
+<h2 id="1-代码案例">1、代码案例</h2>
+<pre><code class="language-c++">class A{
+public:
+    std::string mName;
+        A(){}
+    ~A(){}
+};
+class B{
+public:
+    std::string mDescript;
+    B(){}
+    ~B(){}
+};
+union Union{
+    A mA
+    B mB;
+};
+int main(int nArgs,char aArgv){
+    Union mU;
+    mU.mA.mName=&quot;aaa&quot;;
+    return 1;
+}
+</code></pre>
+<h2 id="2-运行">2、运行</h2>
+<pre><code>结果：运行该程序会造成野指针错误。
+原因：未正确初始化联合体对象 mU，导致字符串类对象内的指针随机指向非nulptr地址。
+</code></pre>
+<h2 id="3-修复">3、修复</h2>
+<pre><code class="language-c++">int main(int nArgs,char aArgv){
+    Union mU;
+    //构造对象
+    new(&amp;mU) A();
+    mU.mA.mName=&quot;aaa&quot;;
+     return 1;
+}
+</code></pre>
+<h2 id="4-运行">4、运行</h2>
+<pre><code>结果：存在内存泄露
+原因：为正确析构联合体对象 mU，即是字符串类对象内部分配的内存未释放
+</code></pre>
+<h2 id="5-修复">5、修复</h2>
+<pre><code class="language-c++">int main(int nArgs,char aArgv){
+    Union mU;
+    //构造对象
+     new(&amp;mU) A();
+    mU.mA.mName=&quot;aaa&quot;;
+    //析构对象
+    mU.mA.~A();
+    return 1;
+ }
+</code></pre>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[c++函数委托模板实现]]></title>
+        <id>https://kirlang.github.io/chan-shu-wei-tuo-mo-ban-shi-xian/</id>
+        <link href="https://kirlang.github.io/chan-shu-wei-tuo-mo-ban-shi-xian/">
+        </link>
+        <updated>2022-07-17T00:46:41.000Z</updated>
+        <content type="html"><![CDATA[<h1 id="底层原理">底层原理：</h1>
+<pre><code>利用函数指针做动态的函数调用。
+</code></pre>
+<h1 id="所需技术">所需技术：</h1>
+<pre><code>静态函数和成员函数的指针申明
+变参模板使用技巧
+手动类对象初始化
+</code></pre>
+<h2 id="1-静态函数指针申明">1、静态函数指针申明</h2>
+<p>函数指针类型申明</p>
+<pre><code class="language-c++">typedef int (*FuncPtr)(int,float);
+</code></pre>
+<p>或者</p>
+<pre><code class="language-c++">using FuncPtr=int (*)(int,float);
+</code></pre>
+<h2 id="2-成员函数指针声明">2、成员函数指针声明</h2>
+<pre><code class="language-c++">typedef int (Class::*FuncPtr)(int,float);
+</code></pre>
+<p>或者</p>
+<pre><code class="language-c++">using FuncPtr=int (Class::*)(int,float);
+</code></pre>
+<h2 id="3-可变模板参数">3、可变模板参数</h2>
+<pre><code class="language-c++">template &lt;typename Ret, typename... Args&gt;
+Ret Func(Args... args){
+    return  pinrt(args...);
+}
+</code></pre>
+<h2 id="4-手动构造类对象">4、手动构造类对象</h2>
+<pre><code class="language-c++">char object[32];
+new(object) Class(12);
+</code></pre>
+<h2 id="5-委托模板基类">5、委托模板基类</h2>
+<pre><code class="language-c++">//函数委托回调基类
+    template &lt;typename Ret, typename... Args&gt;
+    class IEntrust
+    {
+    public:
+        virtual ~IEntrust() {}
+        //通过函数指针传参调用
+        virtual Ret emit(Args... args) = 0;
+    };
+</code></pre>
+<h2 id="6-静态函数委托模板">6、静态函数委托模板</h2>
+<pre><code class="language-c++">//静态函数委托回调
+    template &lt;typename Ret, typename... Args&gt;
+    class IEntrustStaticImp : public IEntrust&lt;Ret, Args...&gt;
+    {
+    public:
+        using FuncPtr = Ret (*)(Args...);
+
+        IEntrustStaticImp(FuncPtr func = nullptr) : mFunc(func) {}
+        virtual ~IEntrustStaticImp() {}
+        virtual Ret emit(Args... args) override { return mFunc(args...); }
+
+    protected:
+        //静态函数指针
+        FuncPtr mFunc;
+    };
+</code></pre>
+<h2 id="7-成员函数委托模板">7、成员函数委托模板</h2>
+<pre><code class="language-c++">//成员函数委托回调
+    template &lt;typename Type, typename Ret, typename... Args&gt;
+    class IEntrustImp : public IEntrust&lt;Ret, Args...&gt;
+    {
+    public:
+        using Method = Ret (Type::*)(Args...);
+        IEntrustImp(Type *obj, Method method) : mObject(obj), mMethod(method) {}
+        virtual ~IEntrustImp() {}
+
+        virtual Ret emit(Args... args) override { return (mObject-&gt;*mMethod)(args...); }
+
+    protected:
+        Type *mObject;  //对象指针
+        Method mMethod; //成员函数
+    };
+</code></pre>
+<h2 id="8-函数委托统一模板">8、函数委托统一模板</h2>
+<pre><code class="language-c++">//可以实现两种回调的模板类
+    template &lt;typename Ret, typename... Args&gt;
+    class Entrust
+    {
+    public:
+        Entrust() { memset(this, 0, sizeof(Entrust)); }
+        Entrust(const Entrust &amp;rhs)
+        {
+            if (nullptr == rhs.mEmit)
+            {
+                mEmit = nullptr;
+            }
+            else
+            {
+                memcpy(mBuffer, rhs.mBuffer, sizeof(mBuffer));
+                mEmit = (IEntrust&lt;Ret, Args...&gt;)(mBuffer);
+            }
+        }
+        virtual ~Entrust() {}
+        Entrust &amp;operator=(const Entrust &amp;rhs)
+        {
+            if (nullptr == rhs.mEmit)
+            {
+                mEmit = nullptr;
+            }
+            else
+            {
+                memcpy(mBuffer, rhs.mBuffer, sizeof(mBuffer));
+                mEmit = (IEntrust&lt;Ret, Args...&gt;)(mBuffer);
+            }
+            return *this;
+        }
+
+        //绑定成员函数回调
+        template &lt;typename Type&gt;
+        void bind(Type *object, Ret (Type::*method)(Args...))
+        {
+            int nSize = sizeof(method);
+            if (nullptr != object &amp;&amp; nullptr != method)
+                mEmit = new ((uintptr)mBuffer) IEntrustImp&lt;Type, Ret, Args...&gt;(object, method);
+            else
+                mEmit = nullptr;
+        }
+        //绑定静态函数回调
+        void bind(Ret (*method)(Args...))
+        {
+            if (nullptr != method)
+                mEmit = new ((uintptr)mBuffer) IEntrustStaticImp&lt;Ret, Args...&gt;(method);
+            else
+                mEmit = nullptr;
+        }
+
+        // 函数调用
+        Ret emit(Args... args)
+        {
+            if (nullptr != mEmit)
+                return mEmit-&gt;emit(args...);
+            else
+                return Ret(0);
+        }
+
+        // 仿函数调用
+        Ret operator()(Args... args)
+        {
+            if (nullptr != mEmit)
+                return mEmit-&gt;emit(args...);
+            else
+                return Ret(0);
+        }
+
+    protected:
+        //指向回调类型的指针
+        IEntrust&lt;Ret, Args...&gt; *mEmit;
+        //从mBuffer处构造回调类
+        uint8 mBuffer[32];
+    };
+</code></pre>
+]]></content>
+    </entry>
+</feed>
